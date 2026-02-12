@@ -1,120 +1,121 @@
 import asyncio
-import json
 import httpx
-import sseclient
 from typing import Dict, List, Any, Optional
-from typing import AsyncIterator
+import time
 
 
 class MCPServerClient:
-    """Клиент для подключения к MCP серверу через SSE + messages"""
+    """Клиент для подключения к MCP серверу через HTTP"""
     
     def __init__(self, server_url: str, name: str):
         self.server_url = server_url.rstrip('/')
         self.name = name
         self.tools: List[Dict] = []
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=60.0)
         self.is_healthy = False
-        self._session_id: Optional[str] = None
+        self.retry_count = 3
+        self.retry_delay = 10  # секунд
     
     async def check_health(self) -> bool:
-        """Проверка health endpoint"""
-        try:
-            response = await self.client.get(
-                f"{self.server_url}/health",
-                timeout=10.0
-            )
-            self.is_healthy = response.status_code == 200
-            return self.is_healthy
-        except Exception:
-            self.is_healthy = False
-            return False
-    
-    async def _send_mcp_request(self, method: str, params: Dict = None) -> Dict:
-        """Отправка запроса к MCP серверу"""
-        if not self._session_id:
-            raise Exception("MCP session not initialized")
+        """Проверка health endpoint с retry"""
+        for attempt in range(self.retry_count):
+            try:
+                response = await self.client.get(
+                    f"{self.server_url}/health",
+                    timeout=30.0
+                )
+                if response.status_code == 200:
+                    self.is_healthy = True
+                    return True
+                else:
+                    print(f"[{self.name}] Health check attempt {attempt + 1}: status {response.status_code}")
+            except Exception as e:
+                print(f"[{self.name}] Health check attempt {attempt + 1}: {e}")
+            
+            if attempt < self.retry_count - 1:
+                print(f"[{self.name}] Ожидание {self.retry_delay}с перед повторной попыткой...")
+                await asyncio.sleep(self.retry_delay)
         
-        request = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params or {}
-        }
-        
-        response = await self.client.post(
-            f"{self.server_url}/messages",
-            json=request,
-            headers={"Content-Type": "application/json"}
-        )
-        response.raise_for_status()
-        return response.json()
+        self.is_healthy = False
+        return False
     
     async def initialize(self) -> bool:
-        """Инициализация и получение списка инструментов"""
+        """Инициализация с ожиданием пробуждения сервера"""
+        print(f"[{self.name}] Подключение к MCP серверу...")
+        print(f"[{self.name}] (Бесплатный Render может спать до 50 секунд)")
+        
+        # Ждём пока сервер проснётся
+        if not await self.check_health():
+            print(f"[{self.name}] ⚠️ Сервер не отвечает. Возможно спит или упал.")
+            return False
+        
+        print(f"[{self.name}] ✅ Сервер проснулся!")
+        
+        # Получаем манифест
         try:
-            # Проверяем health
-            if not await self.check_health():
-                print(f"[{self.name}] Сервер недоступен")
-                return False
-            
-            # Получаем manifest для получения sessionId
             manifest_response = await self.client.get(
                 f"{self.server_url}/manifest",
-                headers={"Accept": "application/json"}
+                headers={"Accept": "application/json"},
+                timeout=30.0
             )
             manifest_response.raise_for_status()
             manifest = manifest_response.json()
+            print(f"[{self.name}] Manifest получен: {manifest.get('endpoints', {})}")
             
-            # Получаем sessionId из SSE потока
-            async with self.client.stream("GET", f"{self.server_url}/sse") as response:
-                async for line in response.aiter_lines():
-                    if line.startswith("event: endpoint"):
-                        data = line.split("data: ")[1] if "data: " in line else ""
-                        if data:
-                            # Parse session endpoint
-                            self._session_id = data.split("/sessions/")[-1] if "/sessions/" in data else data
-                            break
+            # Получаем tools через MCP endpoint
+            tools_response = await self.client.get(
+                f"{self.server_url}/mcp/tools",
+                headers={"Accept": "application/json"},
+                timeout=30.0
+            )
             
-            if not self._session_id:
-                print(f"[{self.name}] Не удалось получить sessionId")
-                return False
-            
-            # Получаем список инструментов через MCP protocol
-            result = await self._send_mcp_request("tools/list")
-            
-            if "result" in result and "tools" in result["result"]:
-                for tool in result["result"]["tools"]:
+            if tools_response.status_code == 200:
+                data = tools_response.json()
+                for tool_data in data.get('tools', []):
                     self.tools.append({
-                        'name': tool.get('name'),
-                        'description': tool.get('description', ''),
-                        'inputSchema': tool.get('inputSchema', {})
+                        'name': tool_data['name'],
+                        'description': tool_data.get('description', ''),
+                        'inputSchema': tool_data.get('inputSchema', {})
                     })
+            elif tools_response.status_code == 404:
+                # Пробуем альтернативный endpoint
+                print(f"[{self.name}] /mcp/tools вернул 404, пробуем /tools...")
+                tools_response = await self.client.get(
+                    f"{self.server_url}/tools",
+                    headers={"Accept": "application/json"},
+                    timeout=30.0
+                )
+                if tools_response.status_code == 200:
+                    data = tools_response.json()
+                    for tool_data in data.get('tools', []):
+                        self.tools.append({
+                            'name': tool_data['name'],
+                            'description': tool_data.get('description', ''),
+                            'inputSchema': tool_data.get('inputSchema', {})
+                        })
             
-            print(f"[{self.name}] Подключено. Инструментов: {len(self.tools)}")
+            print(f"[{self.name}] ✅ Подключено! Инструментов: {len(self.tools)}")
             return True
             
         except Exception as e:
-            print(f"[{self.name}] Ошибка: {e}")
+            print(f"[{self.name}] ❌ Ошибка получения инструментов: {e}")
             return False
     
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Вызов инструмента"""
         try:
-            if not self._session_id:
-                return "MCP session not initialized"
+            response = await self.client.post(
+                f"{self.server_url}/mcp/tools/{tool_name}",
+                json={"arguments": arguments},
+                headers={"Content-Type": "application/json"},
+                timeout=60.0
+            )
+            response.raise_for_status()
+            result = response.json()
             
-            result = await self._send_mcp_request("tools/call", {
-                "name": tool_name,
-                "arguments": arguments
-            })
-            
-            if "result" in result:
-                content = result["result"].get("content", [])
-                if content:
-                    return content[0].get("text", str(content))
-                return str(result["result"])
-            
+            content = result.get('content', [])
+            if content and len(content) > 0:
+                return content[0].get('text', str(result))
             return str(result)
             
         except Exception as e:
@@ -135,9 +136,23 @@ class MCPManager:
         self.servers[name] = MCPServerClient(url, name)
     
     async def initialize_all(self):
+        print("\n" + "="*50)
+        print("🚀 Инициализация MCP серверов...")
+        print("="*50)
+        
         for server in self.servers.values():
             await server.initialize()
+        
         self._update_tools_list()
+        
+        print("\n" + "="*50)
+        print("📊 Статус MCP серверов:")
+        print("="*50)
+        for name, server in self.servers.items():
+            status = "✅" if server.is_healthy else "❌"
+            tools = len(server.tools)
+            print(f"  {status} {name}: {tools} инструментов")
+        print("="*50 + "\n")
     
     def _update_tools_list(self):
         self.all_tools = []
