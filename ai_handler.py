@@ -52,9 +52,12 @@ class AIHandler:
         openai_tools = None
         if tools:
             openai_tools = []
-            # Take only first 15 most important tools to stay within token limit
-            limited_tools = tools[:15] if len(tools) > 15 else tools
-            print(f"Limiting tools from {len(tools)} to {len(limited_tools)} to avoid token limit")
+            # Prioritize tools: RetailCRM first (orders, customers), then others
+            # Sort to put retailcrm tools first
+            sorted_tools = sorted(tools, key=lambda t: (0 if t["function"]["name"].startswith("retailcrm") else 1, t["function"]["name"]))
+            # Take first 25 tools (increased from 15)
+            limited_tools = sorted_tools[:25] if len(sorted_tools) > 25 else sorted_tools
+            print(f"Limiting tools from {len(tools)} to {len(limited_tools)} (prioritized RetailCRM)")
             
             for tool in limited_tools:
                 # Truncate descriptions to save tokens
