@@ -91,6 +91,19 @@ class AIHandler:
             
             response.raise_for_status()
             result = response.json()
+            
+            # Debug: log the full response
+            print(f"OpenRouter response: {json.dumps(result, indent=2)[:1000]}")
+            
+            # Check if response has expected structure
+            if "choices" not in result:
+                error_msg = f"Unexpected response format. Keys: {list(result.keys())}"
+                if "error" in result:
+                    error_msg += f" Error: {result['error']}"
+                raise Exception(f"OpenRouter API Error: {error_msg}")
+            
+            if not result["choices"]:
+                raise Exception("OpenRouter API Error: Empty choices array")
         
         choice = result["choices"][0]
         message = choice["message"]
