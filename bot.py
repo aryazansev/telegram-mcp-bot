@@ -1,7 +1,5 @@
 import os
-import asyncio
 import logging
-import threading
 from flask import Flask, request, Response
 from telegram import Update
 from telegram.ext import (
@@ -24,9 +22,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-user_conversations: Dict[int, List[Dict]]
-
 flask_app = Flask(__name__)
+
+user_conversations = {}
 
 application = None
 bot_instance = None
@@ -55,14 +53,6 @@ class TelegramMCPBot:
 
         await self.mcp_manager.initialize_all()
 
-        health_status = []
-        for name, server in self.mcp_manager.servers.items():
-            status = "✅" if server.is_healthy else "❌"
-            tools_count = len(server.tools)
-            health_status.append(f"{status} {name}: {tools_count} инструментов")
-
-        logger.info("MCP серверы: " + " | ".join(health_status))
-
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
         user_id = update.effective_user.id
@@ -70,12 +60,11 @@ class TelegramMCPBot:
         welcome_text = """
 🤖 Привет! Я умный бот с интеграцией MCP серверов.
 
-Я могу помочь вам с:
 📦 Яндекс Доставка - расчёт стоимости и создание заказов
 🚚 СДЭК - отслеживание и тарифы
 📋 RetailCRM - управление заказами
 
-Просто напишите ваш вопрос или запрос!
+Просто напишите ваш вопрос!
         """
 
         await update.message.reply_text(welcome_text)
@@ -84,16 +73,14 @@ class TelegramMCPBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /help"""
         help_text = """
-Доступные команды:
 /start - Начать разговор
 /help - Показать помощь
-/status - Проверить статус MCP серверов
+/status - Статус MCP серверов
 /clear - Очистить историю
 
-Примеры запросов:
+Примеры:
 • "Рассчитай доставку Яндексом из Москвы в СПб, 2 кг"
 • "Отследи СДЭК заказ 1234567890"
-• "Покажи заказы в RetailCRM за сегодня"
         """
         await update.message.reply_text(help_text)
 
@@ -113,8 +100,7 @@ class TelegramMCPBot:
             tools = len(server.tools)
 
             status_lines.append(f"{'🟢' if is_healthy else '🔴'} *{name}*")
-            status_lines.append(f"   Статус: {status}")
-            status_lines.append(f"   Инструменты: {tools}")
+            status_lines.append(f"   {status}, {tools} инстр.")
             status_lines.append("")
 
         status_text = "\n".join(status_lines)
@@ -194,10 +180,10 @@ class TelegramMCPBot:
 
 @flask_app.route(f"/{os.getenv('TELEGRAM_BOT_TOKEN')}/webhook", methods=['POST'])
 async def webhook():
-    """Обработка входящих webhook запросов"""
+    """Обработка webhook запросов от Telegram"""
     try:
-        global application
-        if application:
+        global application, bot_instance
+        if application and bot_instance:
             await application.update_queue.put(
                 Update.de_json(request.get_json(force=True), application.bot)
             )
@@ -212,9 +198,9 @@ def health():
     return 'OK'
 
 
-async def run_bot():
-    """Запуск бота"""
-    global bot_instance, application
+async def setup_bot():
+    """Настройка бота с webhook"""
+    global application, bot_instance
 
     bot_instance = TelegramMCPBot()
     await bot_instance.initialize()
@@ -236,6 +222,7 @@ async def run_bot():
 
     logger.info("🤖 Бот инициализирован!")
 
+    # Устанавливаем webhook
     webhook_url = os.getenv('WEBHOOK_URL')
     if webhook_url:
         try:
@@ -245,32 +232,29 @@ async def run_bot():
             )
             logger.info(f"🔗 Webhook установлен: {webhook_url}")
         except Exception as e:
-            logger.error(f"Ошибка установки webhook: {e}")
-
-    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-    logger.info("🔄 Polling запущен!")
-
-    await asyncio.Event().wait()
+            logger.error(f"Ошибка webhook: {e}")
 
 
-def bot_thread_func():
-    """Функция для запуска бота в отдельном потоке"""
-    try:
-        asyncio.run(run_bot())
-    except Exception as e:
-        logger.error(f"Bot thread error: {e}")
+def run():
+    """Запуск"""
+    import asyncio
+    import threading
 
+    # Запускаем асинхронную инициализацию бота в отдельном потоке
+    def bot_setup():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(setup_bot())
+        loop.close()
 
-if __name__ == '__main__':
-    import time
-
-    # Ждём немного чтобы Flask успел запуститься
-    time.sleep(2)
-
-    # Запускаем бота в отдельном потоке
-    bot_thread = threading.Thread(target=bot_thread_func, daemon=True)
+    bot_thread = threading.Thread(target=bot_setup, daemon=True)
     bot_thread.start()
+    bot_thread.join()
 
     # Запускаем Flask
     port = int(os.getenv('PORT', 10000))
     flask_app.run(host='0.0.0.0', port=port)
+
+
+if __name__ == '__main__':
+    run()
