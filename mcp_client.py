@@ -12,10 +12,30 @@ class MCPServerClient:
         self.name = name
         self.tools: List[Dict] = []
         self.client = httpx.AsyncClient(timeout=30.0)
+        self.is_healthy = False
+    
+    async def check_health(self) -> bool:
+        """Проверка health endpoint"""
+        try:
+            response = await self.client.get(
+                f"{self.server_url}/health",
+                headers={"Accept": "application/json"},
+                timeout=10.0
+            )
+            self.is_healthy = response.status_code == 200
+            return self.is_healthy
+        except Exception as e:
+            self.is_healthy = False
+            return False
     
     async def initialize(self):
         """Инициализация и получение списка инструментов"""
         try:
+            # Сначала проверяем health
+            if not await self.check_health():
+                print(f"[{self.name}] Сервер недоступен (health check failed)")
+                return False
+            
             response = await self.client.get(
                 f"{self.server_url}/mcp/tools",
                 headers={"Accept": "application/json"}

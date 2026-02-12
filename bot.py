@@ -48,7 +48,33 @@ class TelegramMCPBot:
         )
         
         await self.mcp_manager.initialize_all()
-        logger.info("Все MCP серверы инициализированы")
+        
+        # Проверяем health каждого сервера
+        health_status = []
+        for name, server in self.mcp_manager.servers.items():
+            status = "✅" if server.is_healthy else "❌"
+            tools_count = len(server.tools)
+            health_status.append(f"{status} {name}: {tools_count} инструментов")
+        
+        logger.info("MCP серверы: " + " | ".join(health_status))
+    
+    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Проверка статуса MCP серверов"""
+        status_lines = ["📊 Статус MCP серверов:\n"]
+        
+        for name, server in self.mcp_manager.servers.items():
+            # Проверяем health
+            is_healthy = await server.check_health()
+            status = "✅ Онлайн" if is_healthy else "❌ Недоступен"
+            tools = len(server.tools)
+            
+            status_lines.append(f"{'🟢' if is_healthy else '🔴'} *{name}*")
+            status_lines.append(f"   Статус: {status}")
+            status_lines.append(f"   Инструменты: {tools}")
+            status_lines.append("")
+        
+        status_text = "\n".join(status_lines)
+        await update.message.reply_text(status_text, parse_mode='Markdown')
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
@@ -74,6 +100,7 @@ class TelegramMCPBot:
 Доступные команды:
 /start - Начать разговор
 /help - Показать помощь
+/status - Проверить статус MCP серверов
 /clear - Очистить историю
 
 Примеры запросов:
@@ -168,6 +195,7 @@ class TelegramMCPBot:
         self.application.add_handler(CommandHandler('start', self.start))
         self.application.add_handler(CommandHandler('help', self.help_command))
         self.application.add_handler(CommandHandler('clear', self.clear_command))
+        self.application.add_handler(CommandHandler('status', self.status_command))
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
