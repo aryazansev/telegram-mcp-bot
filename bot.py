@@ -200,12 +200,20 @@ class TelegramMCPBot:
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
         
+        await self.application.initialize()
+        await self.application.start()
         logger.info("Бот запущен!")
-        await self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+        await self.application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        
+        # Держим бота запущенным
+        await asyncio.Event().wait()
     
     def run(self):
         """Запуск бота"""
-        asyncio.run(self.run_async())
+        try:
+            asyncio.run(self.run_async())
+        except KeyboardInterrupt:
+            logger.info("Бот остановлен")
 
 
 if __name__ == '__main__':
