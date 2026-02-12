@@ -202,9 +202,12 @@ async def setup_bot() -> Application:
     bot_instance = TelegramMCPBot()
     await bot_instance.initialize()
 
-    application = Application.builder().token(
-        os.getenv('TELEGRAM_BOT_TOKEN')
-    ).build()
+    token = os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('TELEGRAM_TOKEN')
+    if not token:
+        logger.error("❌ TELEGRAM_BOT_TOKEN или TELEGRAM_TOKEN не установлен!")
+        raise ValueError("Telegram token not found in environment variables")
+    
+    application = Application.builder().token(token).build()
 
     application.add_handler(CommandHandler('start', bot_instance.start))
     application.add_handler(CommandHandler('help', bot_instance.help_command))
