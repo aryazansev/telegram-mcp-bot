@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 from flask import Flask, request, Response
 from telegram import Update
@@ -132,7 +133,7 @@ class TelegramMCPBot:
                 for tool_call in ai_response['tool_calls']:
                     result = await self.mcp_manager.execute_tool(
                         tool_call['name'],
-                        tool_call['arguments']
+                        tool_call['_arguments']
                     )
                     tool_results.append({
                         "role": "tool",
@@ -178,15 +179,15 @@ class TelegramMCPBot:
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
 
+# Синхронный webhook
 @flask_app.route(f"/{os.getenv('TELEGRAM_BOT_TOKEN')}/webhook", methods=['POST'])
-async def webhook():
+def webhook():
     """Обработка webhook запросов от Telegram"""
     try:
-        global application, bot_instance
-        if application and bot_instance:
-            await application.update_queue.put(
-                Update.de_json(request.get_json(force=True), application.bot)
-            )
+        global application
+        if application:
+            update = Update.de_json(request.get_json(force=True), application.bot)
+            application.update_queue.put_nowait(update)
     except Exception as e:
         logger.error(f"Webhook error: {e}")
     return Response(status=200)
@@ -198,9 +199,9 @@ def health():
     return 'OK'
 
 
-async def setup_bot():
-    """Настройка бота с webhook"""
-    global application, bot_instance
+async def run_async():
+    """Асинхронный запуск"""
+    global bot_instance, application
 
     bot_instance = TelegramMCPBot()
     await bot_instance.initialize()
@@ -222,7 +223,6 @@ async def setup_bot():
 
     logger.info("🤖 Бот инициализирован!")
 
-    # Устанавливаем webhook
     webhook_url = os.getenv('WEBHOOK_URL')
     if webhook_url:
         try:
@@ -234,22 +234,27 @@ async def setup_bot():
         except Exception as e:
             logger.error(f"Ошибка webhook: {e}")
 
+    # Запускаем обработку очереди
+    while True:
+        application.process_queue()
+
 
 def run():
     """Запуск"""
-    import asyncio
     import threading
 
-    # Запускаем асинхронную инициализацию бота в отдельном потоке
-    def bot_setup():
+    # Запускаем асинхронный цикл в отдельном потоке
+    def async_runner():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(setup_bot())
-        loop.close()
+        try:
+            loop.run_until_complete(run_async())
+        finally:
+            loop.close()
 
-    bot_thread = threading.Thread(target=bot_setup, daemon=True)
-    bot_thread.start()
-    bot_thread.join()
+    thread = threading.Thread(target=async_runner, daemon=True)
+    thread.start()
+    thread.join()
 
     # Запускаем Flask
     port = int(os.getenv('PORT', 10000))
