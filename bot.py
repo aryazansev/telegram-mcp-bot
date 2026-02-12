@@ -168,7 +168,7 @@ class TelegramMCPBot:
 
             conversation.append({"role": "user", "content": user_message})
             conversation.append({"role": "assistant", "content": response_text})
-            user_conversations[user_id] = conversation[-20:]
+            user_conversations[user_id] = conversation[-10:]
 
             await update.message.reply_text(response_text or "Не удалось получить ответ")
 

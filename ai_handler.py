@@ -20,7 +20,8 @@ class AIHandler:
     ) -> Dict[str, Any]:
         """Обработка сообщения с возможностью вызова инструментов"""
         
-        messages = conversation_history or []
+        # Limit conversation history to last 5 messages to save tokens
+        messages = (conversation_history or [])[:-5] if conversation_history and len(conversation_history) > 5 else (conversation_history or [])
         messages.append({
             "role": "user",
             "content": user_message
@@ -28,14 +29,7 @@ class AIHandler:
         
         system_message = {
             "role": "system",
-            "content": """Ты умный ассистент для работы с логистикой и CRM.
-У тебя есть доступ к трём системам:
-1. Яндекс Доставка - расчёт стоимости доставки, создание заказов
-2. СДЭК - отслеживание отправлений, расчёт тарифов
-3. RetailCRM - управление заказами и клиентами
-
-Используй доступные инструменты для помощи пользователю. 
-Если нужно вызвать функцию, используй полное имя в формате: server_name__tool_name"""
+            "content": "Ассистент для логистики и CRM. Доступны: Яндекс Доставка, СДЭК, RetailCRM. Используй инструменты для помощи."
         }
         
         full_messages = [system_message] + messages
