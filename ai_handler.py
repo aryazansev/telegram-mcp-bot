@@ -48,15 +48,25 @@ class AIHandler:
         }
         
         # Convert MCP tools format to OpenAI format
+        # Limit tools to avoid token limit (max ~64000 tokens)
         openai_tools = None
         if tools:
             openai_tools = []
-            for tool in tools:
+            # Take only first 15 most important tools to stay within token limit
+            limited_tools = tools[:15] if len(tools) > 15 else tools
+            print(f"Limiting tools from {len(tools)} to {len(limited_tools)} to avoid token limit")
+            
+            for tool in limited_tools:
+                # Truncate descriptions to save tokens
+                description = tool["function"]["description"]
+                if len(description) > 200:
+                    description = description[:197] + "..."
+                
                 openai_tool = {
                     "type": "function",
                     "function": {
                         "name": tool["function"]["name"],
-                        "description": tool["function"]["description"],
+                        "description": description,
                         "parameters": tool["function"].get("parameters") or tool["function"].get("inputSchema", {})
                     }
                 }
