@@ -47,12 +47,29 @@ class AIHandler:
             "X-Title": "Telegram MCP Bot"
         }
         
+        # Convert MCP tools format to OpenAI format
+        openai_tools = None
+        if tools:
+            openai_tools = []
+            for tool in tools:
+                openai_tool = {
+                    "type": "function",
+                    "function": {
+                        "name": tool["function"]["name"],
+                        "description": tool["function"]["description"],
+                        "parameters": tool["function"].get("parameters") or tool["function"].get("inputSchema", {})
+                    }
+                }
+                openai_tools.append(openai_tool)
+        
         data = {
             "model": self.model,
-            "messages": full_messages,
-            "tools": tools if tools else None,
-            "tool_choice": "auto"
+            "messages": full_messages
         }
+        
+        if openai_tools:
+            data["tools"] = openai_tools
+            data["tool_choice"] = "auto"
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -62,7 +79,10 @@ class AIHandler:
                 timeout=60.0
             )
             
-            if response.status_code == 401:
+            if response.status_code == 400:
+                error_text = response.text
+                raise Exception(f"OpenRouter API Error: Bad Request (400). Response: {error_text[:500]}")
+            elif response.status_code == 401:
                 raise Exception("OpenRouter API Error: Invalid API key. Please check your OPENROUTER_API_KEY at https://openrouter.ai/keys")
             elif response.status_code == 429:
                 raise Exception("OpenRouter API Error: Rate limit exceeded. Please check your account at https://openrouter.ai/")
