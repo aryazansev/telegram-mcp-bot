@@ -1,5 +1,6 @@
 import asyncio
 import httpx
+import json
 from typing import Dict, List, Any, Optional
 import time
 
@@ -110,8 +111,20 @@ class MCPServerClient:
                 headers={"Content-Type": "application/json"},
                 timeout=60.0
             )
+            
+            print(f"[{self.name}] Tool {tool_name} response status: {response.status_code}")
+            print(f"[{self.name}] Tool {tool_name} response text: {response.text[:500]}")
+            
             response.raise_for_status()
-            result = response.json()
+            
+            # Check if response is empty
+            if not response.text or response.text.strip() == '':
+                return f"Ошибка {tool_name}: Пустой ответ от сервера"
+            
+            try:
+                result = response.json()
+            except json.JSONDecodeError as e:
+                return f"Ошибка {tool_name}: Невалидный JSON ответ: {response.text[:200]}"
             
             content = result.get('content', [])
             if content and len(content) > 0:
