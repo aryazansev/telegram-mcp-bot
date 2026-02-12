@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from flask import Flask, request, Response
+from quart import Quart, request, Response
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-flask_app = Flask(__name__)
+quart_app = Quart(__name__)
 
 user_conversations = {}
 
@@ -133,7 +133,7 @@ class TelegramMCPBot:
                 for tool_call in ai_response['tool_calls']:
                     result = await self.mcp_manager.execute_tool(
                         tool_call['name'],
-                        tool_call['_arguments']
+                        tool_call['arguments']
                     )
                     tool_results.append({
                         "role": "tool",
@@ -179,29 +179,29 @@ class TelegramMCPBot:
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
 
-# Синхронный webhook
-@flask_app.route(f"/{os.getenv('TELEGRAM_BOT_TOKEN')}/webhook", methods=['POST'])
-def webhook():
+@quart_app.route(f"/{os.getenv('TELEGRAM_BOT_TOKEN')}/webhook", methods=['POST'])
+async def webhook():
     """Обработка webhook запросов от Telegram"""
     try:
         global application
         if application:
-            update = Update.de_json(request.get_json(force=True), application.bot)
-            application.update_queue.put_nowait(update)
+            await application.update_queue.put(
+                Update.de_json(await request.get_json(force=True), application.bot)
+            )
     except Exception as e:
         logger.error(f"Webhook error: {e}")
     return Response(status=200)
 
 
-@flask_app.route('/health', methods=['GET'])
-def health():
+@quart_app.route('/health', methods=['GET'])
+async def health():
     """Health check"""
     return 'OK'
 
 
-async def run_async():
-    """Асинхронный запуск"""
-    global bot_instance, application
+async def setup_bot():
+    """Настройка бота"""
+    global application, bot_instance
 
     bot_instance = TelegramMCPBot()
     await bot_instance.initialize()
@@ -234,31 +234,14 @@ async def run_async():
         except Exception as e:
             logger.error(f"Ошибка webhook: {e}")
 
-    # Запускаем обработку очереди
-    while True:
-        application.process_queue()
+    await application.updater.start()
 
 
 def run():
     """Запуск"""
-    import threading
-
-    # Запускаем асинхронный цикл в отдельном потоке
-    def async_runner():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(run_async())
-        finally:
-            loop.close()
-
-    thread = threading.Thread(target=async_runner, daemon=True)
-    thread.start()
-    thread.join()
-
-    # Запускаем Flask
+    asyncio.run(setup_bot())
     port = int(os.getenv('PORT', 10000))
-    flask_app.run(host='0.0.0.0', port=port)
+    quart_app.run(host='0.0.0.0', port=port)
 
 
 if __name__ == '__main__':
