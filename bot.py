@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from typing import Dict, List
+import threading
 from flask import Flask, request, Response
 from telegram import Update
 from telegram.ext import (
@@ -24,11 +24,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-user_conversations: Dict[int, List[Dict]] = {}
+user_conversations: Dict[int, List[Dict]]
 
 flask_app = Flask(__name__)
 
-# Глобальные переменные
 application = None
 bot_instance = None
 
@@ -213,8 +212,8 @@ def health():
     return 'OK'
 
 
-async def setup_bot():
-    """Настройка бота"""
+async def run_bot():
+    """Запуск бота"""
     global bot_instance, application
 
     bot_instance = TelegramMCPBot()
@@ -237,26 +236,41 @@ async def setup_bot():
 
     logger.info("🤖 Бот инициализирован!")
 
-    # Устанавливаем webhook
     webhook_url = os.getenv('WEBHOOK_URL')
     if webhook_url:
-        await application.bot.set_webhook(
-            url=f"{webhook_url}/{os.getenv('TELEGRAM_BOT_TOKEN')}/webhook",
-            allowed_updates=Update.ALL_TYPES
-        )
-        logger.info(f"🔗 Webhook установлен: {webhook_url}")
+        try:
+            await application.bot.set_webhook(
+                url=f"{webhook_url}/{os.getenv('TELEGRAM_BOT_TOKEN')}/webhook",
+                allowed_updates=Update.ALL_TYPES
+            )
+            logger.info(f"🔗 Webhook установлен: {webhook_url}")
+        except Exception as e:
+            logger.error(f"Ошибка установки webhook: {e}")
+
+    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("🔄 Polling запущен!")
+
+    await asyncio.Event().wait()
 
 
-def run():
-    """Запуск"""
-    port = int(os.getenv('PORT', 10000))
-
-    # Запускаем асинхронную инициализацию
-    asyncio.run(setup_bot())
-
-    # Запускаем Flask
-    flask_app.run(host='0.0.0.0', port=port)
+def bot_thread_func():
+    """Функция для запуска бота в отдельном потоке"""
+    try:
+        asyncio.run(run_bot())
+    except Exception as e:
+        logger.error(f"Bot thread error: {e}")
 
 
 if __name__ == '__main__':
-    run()
+    import time
+
+    # Ждём немного чтобы Flask успел запуститься
+    time.sleep(2)
+
+    # Запускаем бота в отдельном потоке
+    bot_thread = threading.Thread(target=bot_thread_func, daemon=True)
+    bot_thread.start()
+
+    # Запускаем Flask
+    port = int(os.getenv('PORT', 10000))
+    flask_app.run(host='0.0.0.0', port=port)
