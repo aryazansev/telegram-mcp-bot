@@ -26,7 +26,7 @@ git push -u origin main
    - **Start Command**: `python bot.py`
 5. В секции **Environment Variables** добавьте:
    - `TELEGRAM_BOT_TOKEN`: ваш токен от @BotFather
-   - `OPENAI_API_KEY`: ваш ключ от OpenAI
+   - `OPENROUTER_API_KEY`: ваш ключ от [OpenRouter](https://openrouter.ai)
    - `YANDEX_DELIVERY_MCP_URL`: `https://yandex-delivery-mcp.onrender.com`
    - `CDEK_MCP_URL`: `https://cdek-mcp.onrender.com`
    - `RETAILCRM_MCP_URL`: `https://retailcrm-mcp.onrender.com`
@@ -50,8 +50,18 @@ python bot.py
 - 🚚 **СДЭК** - отслеживание, тарифы
 - 📋 **RetailCRM** - управление заказами и клиентами
 
+## Модели OpenRouter
+
+По умолчанию используется `deepseek/deepseek-chat` (бесплатный/дешёвый).
+
+Изменить модель можно через Environment Variable:
+- `OPENROUTER_MODEL=deepseek/deepseek-chat`
+- `OPENROUTER_MODEL=anthropic/claude-3-haiku`
+- `OPENROUTER_MODEL=openai/gpt-4o-mini`
+- `OPENROUTER_MODEL=google/gemini-pro`
+
 ## Требования
 
 - Python 3.10+
 - Telegram Bot Token
-- OpenAI API Key
+- OpenRouter API Key (получите на https://openrouter.ai)

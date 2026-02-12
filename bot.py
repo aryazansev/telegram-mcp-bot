@@ -32,7 +32,7 @@ bot_instance = None
 class TelegramMCPBot:
     def __init__(self):
         self.mcp_manager = MCPManager()
-        self.ai_handler = AIHandler(os.getenv('OPENAI_API_KEY'))
+        self.ai_handler = AIHandler(os.getenv("OPENROUTER_API_KEY"))
         self.application = None
 
     async def initialize(self):

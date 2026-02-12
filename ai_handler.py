@@ -1,14 +1,16 @@
 import json
 from typing import List, Dict, Any
-from openai import AsyncOpenAI
+import httpx
+import os
 
 
 class AIHandler:
-    """Обработчик запросов с использованием OpenAI"""
+    """Обработчик запросов с использованием OpenRouter через httpx"""
     
     def __init__(self, api_key: str):
-        self.client = AsyncOpenAI(api_key=api_key)
-        self.model = "gpt-4o-mini"
+        self.api_key = api_key
+        self.base_url = "https://openrouter.ai/api/v1"
+        self.model = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat")
     
     async def process_message(
         self, 
@@ -38,29 +40,47 @@ class AIHandler:
         
         full_messages = [system_message] + messages
         
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=full_messages,
-            tools=tools if tools else None,
-            tool_choice="auto"
-        )
-        
-        message = response.choices[0].message
-        
-        result = {
-            "content": message.content,
-            "tool_calls": None,
-            "finish_reason": response.choices[0].finish_reason
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://telegram-mcp-bot.onrender.com",
+            "X-Title": "Telegram MCP Bot"
         }
         
-        if message.tool_calls:
-            result["tool_calls"] = [
+        data = {
+            "model": self.model,
+            "messages": full_messages,
+            "tools": tools if tools else None,
+            "tool_choice": "auto"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=60.0
+            )
+            response.raise_for_status()
+            result = response.json()
+        
+        choice = result["choices"][0]
+        message = choice["message"]
+        
+        response_data = {
+            "content": message.get("content"),
+            "tool_calls": None,
+            "finish_reason": choice.get("finish_reason")
+        }
+        
+        if "tool_calls" in message and message["tool_calls"]:
+            response_data["tool_calls"] = [
                 {
-                    "name": tc.function.name,
-                    "arguments": json.loads(tc.function.arguments),
-                    "id": tc.id
+                    "name": tc["function"]["name"],
+                    "arguments": json.loads(tc["function"]["arguments"]),
+                    "id": tc["id"]
                 }
-                for tc in message.tool_calls
+                for tc in message["tool_calls"]
             ]
         
-        return result
+        return response_data
