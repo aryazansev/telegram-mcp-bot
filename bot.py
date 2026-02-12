@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from quart import Quart, request, Response
+from aiohttp import web
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -18,12 +18,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)s - %(levellevel)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-quart_app = Quart(__name__)
 
 user_conversations = {}
 
@@ -179,27 +177,25 @@ class TelegramMCPBot:
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
 
-@quart_app.route(f"/{os.getenv('TELEGRAM_BOT_TOKEN')}/webhook", methods=['POST'])
-async def webhook():
+async def webhook_handler(request):
     """Обработка webhook запросов от Telegram"""
     try:
         global application
         if application:
-            await application.update_queue.put(
-                Update.de_json(await request.get_json(force=True), application.bot)
-            )
+            data = await request.json()
+            update = Update.de_json(data, application.bot)
+            await application.update_queue.put(update)
     except Exception as e:
         logger.error(f"Webhook error: {e}")
-    return Response(status=200)
+    return web.Response(status=200)
 
 
-@quart_app.route('/health', methods=['GET'])
-async def health():
+async def health_handler(request):
     """Health check"""
-    return 'OK'
+    return web.Response(text="OK", status=200)
 
 
-async def setup_bot():
+async def setup_bot() -> Application:
     """Настройка бота"""
     global application, bot_instance
 
@@ -234,15 +230,41 @@ async def setup_bot():
         except Exception as e:
             logger.error(f"Ошибка webhook: {e}")
 
-    await application.updater.start()
+    return application
 
 
-def run():
-    """Запуск"""
-    asyncio.run(setup_bot())
+async def run_app():
+    """Запуск приложения"""
+    global application
+
+    application = await setup_bot()
+
+    # Создаём aiohttp приложение
+    app = web.Application()
+    app.router.add_post(f"/{os.getenv('TELEGRAM_BOT_TOKEN')}/webhook", webhook_handler)
+    app.router.add_get("/health", health_handler)
+
+    # Запускаем веб-сервер
     port = int(os.getenv('PORT', 10000))
-    quart_app.run(host='0.0.0.0', port=port)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+
+    logger.info(f"🚀 Сервер запущен на порту {port}")
+
+    # Держим приложение запущенным
+    while True:
+        await asyncio.sleep(3600)
+
+
+def main():
+    """Точка входа"""
+    try:
+        asyncio.run(run_app())
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен")
 
 
 if __name__ == '__main__':
-    run()
+    main()
