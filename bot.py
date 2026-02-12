@@ -157,8 +157,10 @@ class TelegramMCPBot:
             logger.error(f"Ошибка: {e}")
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
     
-    def run(self):
-        """Запуск бота"""
+    async def run_async(self):
+        """Асинхронный запуск бота"""
+        await self.initialize()
+        
         self.application = Application.builder().token(
             os.getenv('TELEGRAM_BOT_TOKEN')
         ).build()
@@ -170,14 +172,12 @@ class TelegramMCPBot:
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message)
         )
         
-        asyncio.get_event_loop().run_until_complete(self.initialize())
-        
         logger.info("Бот запущен!")
-        self.application.run_polling(allowed_updates=Update.ALL_TYPES)
-        
-        asyncio.get_event_loop().run_until_complete(
-            self.mcp_manager.close_all()
-        )
+        await self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    def run(self):
+        """Запуск бота"""
+        asyncio.run(self.run_async())
 
 
 if __name__ == '__main__':
