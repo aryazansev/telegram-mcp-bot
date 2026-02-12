@@ -61,6 +61,14 @@ class AIHandler:
                 json=data,
                 timeout=60.0
             )
+            
+            if response.status_code == 401:
+                raise Exception("OpenRouter API Error: Invalid API key. Please check your OPENROUTER_API_KEY at https://openrouter.ai/keys")
+            elif response.status_code == 429:
+                raise Exception("OpenRouter API Error: Rate limit exceeded. Please check your account at https://openrouter.ai/")
+            elif response.status_code == 502:
+                raise Exception("OpenRouter API Error: Service temporarily unavailable (502 Bad Gateway). Please try again later.")
+            
             response.raise_for_status()
             result = response.json()
         
