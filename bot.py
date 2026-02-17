@@ -198,7 +198,7 @@ class TelegramMCPBot:
 
                 final_response = await self.ai_handler.process_message(
                     "Обработай результаты и ответь пользователю",
-                    [],
+                    tools,
                     conversation,
                     tool_results=tool_results,
                     user_id=user_id
