@@ -14,6 +14,7 @@ from telegram.ext import (
 from mcp_client import MCPManager
 from ai_handler import AIHandler
 from context_manager import trim_messages
+from memory import memory_store
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -76,11 +77,13 @@ class TelegramMCPBot:
 /start - Начать разговор
 /help - Показать помощь
 /status - Статус MCP серверов
+/memory - Показать что я знаю о вас
 /clear - Очистить историю
 
 Примеры:
 • "Рассчитай доставку Яндексом из Москвы в СПб, 2 кг"
 • "Отследи СДЭК заказ 1234567890"
+• "Мой заказ 132567A"
         """
         await update.message.reply_text(help_text)
 
@@ -89,6 +92,22 @@ class TelegramMCPBot:
         user_id = update.effective_user.id
         user_conversations[user_id] = []
         await update.message.reply_text("✅ История очищена")
+
+    async def memory_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Просмотр памяти о пользователе"""
+        user_id = update.effective_user.id
+        memory = memory_store.get_user_memory(user_id)
+        
+        facts = memory.get("facts", [])
+        if not facts:
+            await update.message.reply_text("📝 У меня пока нет информации о вас.\nНачните разговор, и я буду запоминать ваши предпочтения!")
+            return
+        
+        text = "📝 Вот что я знаю о вас:\n\n"
+        for fact in facts:
+            text += f"• {fact}\n"
+        
+        await update.message.reply_text(text)
 
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Проверка статуса MCP серверов"""
@@ -123,7 +142,8 @@ class TelegramMCPBot:
             ai_response = await self.ai_handler.process_message(
                 user_message,
                 tools,
-                conversation
+                conversation,
+                user_id=user_id
             )
 
             if ai_response.get('tool_calls'):
@@ -161,7 +181,8 @@ class TelegramMCPBot:
                     "Обработай результаты и ответь пользователю",
                     [],
                     conversation,
-                    tool_results=tool_results
+                    tool_results=tool_results,
+                    user_id=user_id
                 )
 
                 response_text = final_response['content']
@@ -175,11 +196,49 @@ class TelegramMCPBot:
             conversation = trim_messages(conversation, max_tokens=max_context_tokens)
             user_conversations[user_id] = conversation
 
+            # Сохраняем факты о пользователе после разговора
+            self._extract_and_save_facts(user_id, user_message, response_text)
+
             await update.message.reply_text(response_text or "Не удалось получить ответ")
 
         except Exception as e:
             logger.error(f"Ошибка: {e}")
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+
+    def _extract_and_save_facts(self, user_id: int, user_message: str, assistant_response: str):
+        """Извлечение и сохранение фактов о пользователе"""
+        try:
+            # Сохраняем удачный пример диалога
+            if assistant_response and len(assistant_response) > 20:
+                memory_store.add_example(user_message, assistant_response[:500], helpful=True)
+            
+            # Извлекаем простые факты из контекста
+            facts = []
+            
+            # Проверяем номер заказа
+            import re
+            order_numbers = re.findall(r'\b\d{6,7}[A-ZА-Яa-zа-я]?\b', user_message)
+            if order_numbers:
+                facts.append(f"Интересовался заказом: {order_numbers[0]}")
+            
+            # Проверяем товары
+            if any(word in user_message.lower() for word in ['кроссовки', 'туфли', 'сапоги', 'ботинки', 'одежда']):
+                facts.append(f"Интересуется обувью/одеждой")
+            
+            # Проверяем доставку
+            if any(word in user_message.lower() for word in ['доставка', 'пвз', 'курьер', 'транспортная']):
+                facts.append(f"Интересуется доставкой")
+            
+            # Проверяем возврат
+            if 'возврат' in user_message.lower():
+                facts.append(f"Интересуется возвратами")
+            
+            # Сохраняем факты
+            for fact in facts:
+                memory_store.add_fact(user_id, fact)
+                
+        except Exception as e:
+            logger.error(f"Ошибка сохранения фактов: {e}")
 
 
 async def webhook_handler(request):
@@ -217,6 +276,7 @@ async def setup_bot() -> Application:
     application.add_handler(CommandHandler('start', bot_instance.start))
     application.add_handler(CommandHandler('help', bot_instance.help_command))
     application.add_handler(CommandHandler('clear', bot_instance.clear_command))
+    application.add_handler(CommandHandler('memory', bot_instance.memory_command))
     application.add_handler(CommandHandler('status', bot_instance.status_command))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, bot_instance.handle_message)
