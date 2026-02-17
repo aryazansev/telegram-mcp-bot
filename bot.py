@@ -15,6 +15,7 @@ from mcp_client import MCPManager
 from ai_handler import AIHandler
 from context_manager import trim_messages
 from memory import memory_store
+from order_cache import order_cache
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -53,6 +54,9 @@ class TelegramMCPBot:
         )
 
         await self.mcp_manager.initialize_all()
+        
+        # Загружаем кэш заказов
+        await order_cache.refresh(self.mcp_manager)
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
@@ -136,6 +140,21 @@ class TelegramMCPBot:
         await update.message.chat.send_action(action="typing")
 
         try:
+            # Проверяем кэш заказов
+            import re
+            order_match = re.search(r'\b(\d{6,7}[A-ZА-Яa-zа-я]?)\b', user_message)
+            
+            cached_order = None
+            if order_match:
+                order_num = order_match.group(1)
+                cached_order = order_cache.get_order(order_num)
+                if cached_order:
+                    logger.info(f"Нашёл заказ {order_num} в кэше")
+            
+            # Обновляем кэш в фоне если старый
+            if order_cache._should_refresh():
+                asyncio.create_task(order_cache.refresh(self.mcp_manager))
+            
             conversation = user_conversations.get(user_id, [])
             tools = self.mcp_manager.get_tools_for_llm()
 
