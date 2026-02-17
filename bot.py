@@ -13,6 +13,7 @@ from telegram.ext import (
 
 from mcp_client import MCPManager
 from ai_handler import AIHandler
+from context_manager import trim_messages
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -159,7 +160,8 @@ class TelegramMCPBot:
                 final_response = await self.ai_handler.process_message(
                     "Обработай результаты и ответь пользователю",
                     [],
-                    conversation
+                    conversation,
+                    tool_results=tool_results
                 )
 
                 response_text = final_response['content']
@@ -168,7 +170,10 @@ class TelegramMCPBot:
 
             conversation.append({"role": "user", "content": user_message})
             conversation.append({"role": "assistant", "content": response_text})
-            user_conversations[user_id] = conversation[-10:]
+
+            max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "100000"))
+            conversation = trim_messages(conversation, max_tokens=max_context_tokens)
+            user_conversations[user_id] = conversation
 
             await update.message.reply_text(response_text or "Не удалось получить ответ")
 

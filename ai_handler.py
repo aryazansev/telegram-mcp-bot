@@ -3,6 +3,8 @@ from typing import List, Dict, Any
 import httpx
 import os
 
+from context_manager import ContextManager, estimate_tokens, trim_messages
+
 
 class AIHandler:
     """Обработчик запросов с использованием OpenRouter через httpx"""
@@ -11,21 +13,22 @@ class AIHandler:
         self.api_key = api_key
         self.base_url = "https://openrouter.ai/api/v1"
         self.model = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat")
+        self.context_manager = ContextManager(
+            max_tokens=120000,
+            max_tool_results_tokens=25000,
+            summarize_threshold=100000
+        )
     
     async def process_message(
         self, 
         user_message: str, 
         tools: List[Dict],
-        conversation_history: List[Dict] = None
+        conversation_history: List[Dict] = None,
+        tool_results: List[Dict] = None
     ) -> Dict[str, Any]:
         """Обработка сообщения с возможностью вызова инструментов"""
         
-        # Limit conversation history to last 5 messages to save tokens
-        messages = (conversation_history or [])[:-5] if conversation_history and len(conversation_history) > 5 else (conversation_history or [])
-        messages.append({
-            "role": "user",
-            "content": user_message
-        })
+        conversation = list(conversation_history) if conversation_history else []
         
         system_message = {
             "role": "system",
@@ -70,7 +73,12 @@ class AIHandler:
 - Получением статистики"""
         }
         
-        full_messages = [system_message] + messages
+        full_messages = self.context_manager.prepare_messages(
+            conversation,
+            system_message=system_message,
+            current_message=user_message,
+            tool_results=tool_results
+        )
         
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -115,6 +123,10 @@ class AIHandler:
         if openai_tools:
             data["tools"] = openai_tools
             data["tool_choice"] = "auto"
+        
+        enable_compression = os.getenv("PROMPT_COMPRESSION", "false").lower() == "true"
+        if enable_compression:
+            data["transforms"] = ["middle-out"]
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
