@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 import logging
 from aiohttp import web
 from telegram import Update
@@ -188,7 +189,7 @@ class TelegramMCPBot:
                             "type": "function",
                             "function": {
                                 "name": tc['name'],
-                                "arguments": str(tc['arguments'])
+                                "arguments": json.dumps(tc['arguments'])
                             }
                         }
                         for tc in ai_response['tool_calls']

@@ -107,8 +107,8 @@ class ContextManager:
         if system_message:
             result.append(system_message)
         
-        user_messages = [m for m in messages if m.get("role") == "user"]
-        assistant_messages = [m for m in messages if m.get("role") == "assistant"]
+        # Сохраняем правильный порядок сообщений (user -> assistant -> tool -> assistant)
+        # А не разделяем на отдельные списки
         
         available = self.max_tokens - estimate_tokens(system_message or {})
         
@@ -119,7 +119,8 @@ class ContextManager:
                 tr_tokens = estimate_tokens(tool_results)
             available -= tr_tokens
         
-        trimmed = trim_messages(user_messages + assistant_messages, available)
+        # Просто обрезаем всё вместе
+        trimmed = trim_messages(messages, available)
         
         result.extend(trimmed)
         
