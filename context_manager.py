@@ -1,22 +1,7 @@
 import json
-import tiktoken
 from typing import List, Dict, Any, Optional
 
-enc = None
-
-def get_encoder(model: str = "gpt-4") -> tiktoken.Encoding:
-    global enc
-    if enc is None:
-        try:
-            enc = tiktoken.get_encoding("cl100k_base")
-        except Exception:
-            enc = None
-    return enc
-
 def count_tokens(text: str, model: str = "gpt-4") -> int:
-    encoder = get_encoder(model)
-    if encoder:
-        return len(encoder.encode(str(text)))
     return len(str(text)) // 4
 
 def count_messages_tokens(messages: List[Dict]) -> int:
