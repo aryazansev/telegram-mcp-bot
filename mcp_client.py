@@ -15,7 +15,8 @@ class MCPServerClient:
         self.client = httpx.AsyncClient(timeout=60.0)
         self.is_healthy = False
         self.retry_count = 3
-        self.retry_delay = 10  # секунд
+        self.retry_delay = 10
+        self.api_format = None  # 'rest', 'json-rpc', or 'mcp-rest'
     
     async def check_health(self) -> bool:
         """Проверка health endpoint с retry"""
@@ -40,60 +41,115 @@ class MCPServerClient:
         self.is_healthy = False
         return False
     
+    async def _detect_api_format(self) -> str:
+        """Определение формата API сервера"""
+        # Пробуем JSON-RPC формат (Яндекс)
+        try:
+            response = await self.client.post(
+                f"{self.server_url}/mcp",
+                json={"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 1},
+                timeout=10.0
+            )
+            if response.status_code == 200 and "jsonrpc" in response.text:
+                print(f"[{self.name}] Определён формат: JSON-RPC")
+                return "json-rpc"
+        except:
+            pass
+        
+        # Пробуем MCP REST формат (RetailCRM, CDEK)
+        try:
+            response = await self.client.get(
+                f"{self.server_url}/mcp/tools",
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                print(f"[{self.name}] Определён формат: MCP-REST")
+                return "mcp-rest"
+        except:
+            pass
+        
+        # Пробуем простой REST формат
+        try:
+            response = await self.client.get(
+                f"{self.server_url}/tools",
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                print(f"[{self.name}] Определён формат: REST")
+                return "rest"
+        except:
+            pass
+        
+        print(f"[{self.name}] Формат не определён, используем REST по умолчанию")
+        return "rest"
+    
     async def initialize(self) -> bool:
         """Инициализация с ожиданием пробуждения сервера"""
         print(f"[{self.name}] Подключение к MCP серверу...")
         print(f"[{self.name}] (Бесплатный Render может спать до 50 секунд)")
         
-        # Ждём пока сервер проснётся
         if not await self.check_health():
             print(f"[{self.name}] ⚠️ Сервер не отвечает. Возможно спит или упал.")
             return False
         
         print(f"[{self.name}] ✅ Сервер проснулся!")
         
-        # Получаем манифест
+        # Определяем формат API
+        self.api_format = await self._detect_api_format()
+        
         try:
-            manifest_response = await self.client.get(
-                f"{self.server_url}/manifest",
-                headers={"Accept": "application/json"},
-                timeout=30.0
-            )
-            manifest_response.raise_for_status()
-            manifest = manifest_response.json()
-            print(f"[{self.name}] Manifest получен: {manifest.get('endpoints', {})}")
-            
-            # Получаем tools через MCP endpoint
-            tools_response = await self.client.get(
-                f"{self.server_url}/mcp/tools",
-                headers={"Accept": "application/json"},
-                timeout=30.0
-            )
-            
-            if tools_response.status_code == 200:
-                data = tools_response.json()
-                for tool_data in data.get('tools', []):
-                    self.tools.append({
-                        'name': tool_data['name'],
-                        'description': tool_data.get('description', ''),
-                        'inputSchema': tool_data.get('inputSchema', {})
-                    })
-            elif tools_response.status_code == 404:
-                # Пробуем альтернативный endpoint
-                print(f"[{self.name}] /mcp/tools вернул 404, пробуем /tools...")
-                tools_response = await self.client.get(
-                    f"{self.server_url}/tools",
-                    headers={"Accept": "application/json"},
+            if self.api_format == "json-rpc":
+                # Яндекс формат
+                response = await self.client.post(
+                    f"{self.server_url}/mcp",
+                    json={"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 1},
                     timeout=30.0
                 )
-                if tools_response.status_code == 200:
-                    data = tools_response.json()
-                    for tool_data in data.get('tools', []):
+                if response.status_code == 200:
+                    data = response.json()
+                    for tool_data in data.get('result', {}).get('tools', []):
                         self.tools.append({
                             'name': tool_data['name'],
                             'description': tool_data.get('description', ''),
                             'inputSchema': tool_data.get('inputSchema', {})
                         })
+            else:
+                # REST или MCP-REST формат
+                tools_url = f"{self.server_url}/mcp/tools" if self.api_format == "mcp-rest" else f"{self.server_url}/tools"
+                response = await self.client.get(
+                    tools_url,
+                    headers={"Accept": "application/json"},
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    tools_list = data.get('tools', [])
+                    # Если есть tools в манифесте
+                    if not tools_list and 'tools' in data:
+                        tools_list = data['tools']
+                    for tool_data in tools_list:
+                        self.tools.append({
+                            'name': tool_data['name'],
+                            'description': tool_data.get('description', ''),
+                            'inputSchema': tool_data.get('parameters', tool_data.get('inputSchema', {}))
+                        })
+                elif response.status_code == 404:
+                    # Пробуем другой формат
+                    alt_url = f"{self.server_url}/tools" if "/mcp/tools" in tools_url else f"{self.server_url}/mcp/tools"
+                    response = await self.client.get(
+                        alt_url,
+                        headers={"Accept": "application/json"},
+                        timeout=30.0
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        for tool_data in data.get('tools', []):
+                            self.tools.append({
+                                'name': tool_data['name'],
+                                'description': tool_data.get('description', ''),
+                                'inputSchema': tool_data.get('parameters', tool_data.get('inputSchema', {}))
+                            })
             
             print(f"[{self.name}] ✅ Подключено! Инструментов: {len(self.tools)}")
             return True
@@ -105,19 +161,52 @@ class MCPServerClient:
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Вызов инструмента"""
         try:
-            response = await self.client.post(
-                f"{self.server_url}/mcp/tools/{tool_name}",
-                json={"arguments": arguments},
-                headers={"Content-Type": "application/json"},
-                timeout=60.0
-            )
+            if self.api_format == "json-rpc":
+                # Яндекс JSON-RPC формат
+                response = await self.client.post(
+                    f"{self.server_url}/mcp",
+                    json={
+                        "jsonrpc": "2.0",
+                        "method": "tools/call",
+                        "params": {"name": tool_name, "arguments": arguments},
+                        "id": 1
+                    },
+                    headers={"Content-Type": "application/json"},
+                    timeout=60.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        return f"Ошибка {tool_name}: {data['error']}"
+                    result = data.get('result', {})
+                    if 'content' in result:
+                        return result['content'][0].get('text', str(result))
+                    return str(result)
+                return f"Ошибка {tool_name}: статус {response.status_code}"
+                
+            elif self.api_format == "mcp-rest":
+                # MCP REST формат (RetailCRM)
+                response = await self.client.post(
+                    f"{self.server_url}/mcp/tools/{tool_name}",
+                    json={"arguments": arguments},
+                    headers={"Content-Type": "application/json"},
+                    timeout=60.0
+                )
+            else:
+                # Простой REST формат (CDEK)
+                response = await self.client.post(
+                    f"{self.server_url}/tools/{tool_name}",
+                    json=arguments,
+                    headers={"Content-Type": "application/json"},
+                    timeout=60.0
+                )
             
             print(f"[{self.name}] Tool {tool_name} response status: {response.status_code}")
             print(f"[{self.name}] Tool {tool_name} response text: {response.text[:500]}")
             
             response.raise_for_status()
             
-            # Check if response is empty
             if not response.text or response.text.strip() == '':
                 return f"Ошибка {tool_name}: Пустой ответ от сервера"
             
@@ -126,9 +215,16 @@ class MCPServerClient:
             except json.JSONDecodeError as e:
                 return f"Ошибка {tool_name}: Невалидный JSON ответ: {response.text[:200]}"
             
-            content = result.get('content', [])
-            if content and len(content) > 0:
-                return content[0].get('text', str(result))
+            # Обрабатываем разные форматы ответов
+            if self.api_format == "mcp-rest":
+                content = result.get('content', [])
+                if content and len(content) > 0:
+                    return content[0].get('text', str(result))
+            elif 'result' in result:
+                return str(result['result'])
+            elif 'error' in result:
+                return f"Ошибка: {result['error']}"
+            
             return str(result)
             
         except Exception as e:
