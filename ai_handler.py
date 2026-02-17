@@ -23,17 +23,35 @@ class AIHandler:
     def _build_system_prompt(self, user_id: int = None) -> str:
         """Построение system prompt с памятью и примерами"""
         
+        # Явные инструкции по использованию инструментов
+        tool_instructions = """
+🔧 КАК ИСПОЛЬЗОВАТЬ ИНСТРУМЕНТЫ:
+Когда пользователь спрашивает о заказе, клиенте или доставке - ОБЯЗАТЕЛЬНО вызови соответствующий инструмент!
+НЕ просто описывай что сделаешь, а реально вызови функцию через tool_calls.
+Формат вызова: ты должен вернуть объект tool_calls в ответе.
+
+Пример ПРАВИЛЬНОГО ответа:
+{"role": "assistant", "content": "Сейчас проверю заказ...", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "retailcrm__get_order_by_number", "arguments": "{\\"number\\": \\"132567A\\"}"}]}}
+
+Пример НЕПРАВИЛЬНОГО ответа (просто текст):
+<invoke name="retailcrm__get_order_by_number">
+<parameter name="order_number">132567A</parameter>
+</invoke>
+
+Запомни: ты ДОЛЖЕН вернуть JSON с tool_calls для выполнения инструментов!
+"""
+        
         # Few-shot примеры
         examples_text = """
 Примеры удачных диалогов:
 Пользователь: Где мой заказ 132567A?
-Ассистент: Сейчас проверю по номеру заказа в RetailCRM...
+Ассистент: [вызывает retailcrm__get_order_by_number с номером 132567A]
 
 Пользователь: Хочу кроссовки размера 42
-Ассистент: Проверю наличие товара в каталоге...
+Ассистент: [проверяет наличие товара в каталоге]
 
 Пользователь: Сколько стоит доставка до Москвы?
-Ассистент: Рассчитаю стоимость доставки СДЭК...
+Ассистент: [рассчитывает стоимость доставки]
 """
         
         # Память пользователя
@@ -68,7 +86,7 @@ class AIHandler:
 Ты помогаешь с заказами, клиентами, доставкой, товарами."""
         
         # Собираем полный промпт
-        parts = [base_prompt]
+        parts = [base_prompt, tool_instructions]
         
         if user_facts_text:
             parts.append(f"\n{user_facts_text}")
@@ -118,8 +136,8 @@ class AIHandler:
             # Prioritize tools: RetailCRM first (orders, customers), then others
             # Sort to put retailcrm tools first
             sorted_tools = sorted(tools, key=lambda t: (0 if t["function"]["name"].startswith("retailcrm") else 1, t["function"]["name"]))
-            # Take first 25 tools (increased from 15)
-            limited_tools = sorted_tools[:25] if len(sorted_tools) > 25 else sorted_tools
+            # Take first 40 tools 
+            limited_tools = sorted_tools[:40] if len(sorted_tools) > 40 else sorted_tools
             print(f"Limiting tools from {len(tools)} to {len(limited_tools)} (prioritized RetailCRM)")
             
             for tool in limited_tools:
