@@ -94,8 +94,12 @@ class MCPServerClient:
         
         print(f"[{self.name}] ✅ Сервер проснулся!")
         
-        # Определяем формат API
-        self.api_format = await self._detect_api_format()
+        # Для retailcrm всегда используем mcp-rest, для остальных — автоопределение
+        if self.name == "retailcrm":
+            self.api_format = "mcp-rest"
+            print(f"[{self.name}] Формат: mcp-rest (захардкожено для RetailCRM)")
+        else:
+            self.api_format = await self._detect_api_format()
         
         try:
             if self.api_format == "json-rpc":
