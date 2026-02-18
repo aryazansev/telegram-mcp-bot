@@ -187,16 +187,22 @@ class MCPServerClient:
                 
             elif self.api_format == "mcp-rest":
                 # MCP REST формат (RetailCRM)
+                _url = f"{self.server_url}/mcp/tools/{tool_name}"
+                print(f"[{self.name}] Calling URL: {_url}")
+                print(f"[{self.name}] Arguments: {str(arguments)[:300]}")
                 response = await self.client.post(
-                    f"{self.server_url}/mcp/tools/{tool_name}",
+                    _url,
                     json={"arguments": arguments},
                     headers={"Content-Type": "application/json"},
                     timeout=60.0
                 )
             else:
                 # Простой REST формат (CDEK)
+                _url = f"{self.server_url}/tools/{tool_name}"
+                print(f"[{self.name}] Calling URL: {_url}")
+                print(f"[{self.name}] Arguments: {str(arguments)[:300]}")
                 response = await self.client.post(
-                    f"{self.server_url}/tools/{tool_name}",
+                    _url,
                     json=arguments,
                     headers={"Content-Type": "application/json"},
                     timeout=60.0
@@ -204,11 +210,6 @@ class MCPServerClient:
             
             print(f"[{self.name}] Tool {tool_name} response status: {response.status_code}")
             print(f"[{self.name}] Tool {tool_name} response text: {response.text[:500]}")
-            
-            if response.status_code == 502:
-                return f"Ошибка 502: Сервер {self.name} временно недоступен (Bad Gateway). Попробуйте позже."
-            elif response.status_code == 503:
-                return f"Ошибка 503: Сервер {self.name} на обслуживании. Попробуйте позже."
             
             response.raise_for_status()
             
