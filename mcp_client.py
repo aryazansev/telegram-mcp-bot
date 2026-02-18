@@ -169,19 +169,48 @@ class MCPServerClient:
             phone = '7' + phone[1:]
         return phone
 
+    async def _make_request_with_retry(self, url: str, method: str = "POST", **kwargs) -> httpx.Response:
+        """Выполнение HTTP запроса с retry при 502 ошибке"""
+        max_retries = 3
+        retry_delay = 15  # секунд между попытками
+        
+        for attempt in range(max_retries):
+            try:
+                if method == "POST":
+                    response = await self.client.post(url, **kwargs)
+                else:
+                    response = await self.client.get(url, **kwargs)
+                
+                if response.status_code == 502:
+                    print(f"[{self.name}] 502 Bad Gateway, попытка {attempt + 1}/{max_retries}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)
+                        continue
+                
+                return response
+                
+            except httpx.ConnectError as e:
+                print(f"[{self.name}] Ошибка подключения, попытка {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    continue
+                raise
+        
+        raise Exception("Max retries exceeded")
+
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Вызов инструмента"""
-        # Нормализуем телефон если есть в аргументах
         if 'filter' in arguments and isinstance(arguments['filter'], dict):
             if 'phone' in arguments['filter']:
                 arguments['filter']['phone'] = self._normalize_phone(str(arguments['filter']['phone']))
         if 'phone' in arguments:
             arguments['phone'] = self._normalize_phone(str(arguments['phone']))
+        
         try:
             if self.api_format == "json-rpc":
-                # Яндекс JSON-RPC формат
-                response = await self.client.post(
+                response = await self._make_request_with_retry(
                     f"{self.server_url}/mcp",
+                    method="POST",
                     json={
                         "jsonrpc": "2.0",
                         "method": "tools/call",
@@ -203,23 +232,23 @@ class MCPServerClient:
                 return f"Ошибка {tool_name}: статус {response.status_code}"
                 
             elif self.api_format == "mcp-rest":
-                # MCP REST формат (RetailCRM)
                 _url = f"{self.server_url}/mcp/tools/{tool_name}"
                 print(f"[{self.name}] Calling URL: {_url}")
                 print(f"[{self.name}] Arguments: {str(arguments)[:300]}")
-                response = await self.client.post(
+                response = await self._make_request_with_retry(
                     _url,
+                    method="POST",
                     json={"arguments": arguments},
                     headers={"Content-Type": "application/json"},
                     timeout=60.0
                 )
             else:
-                # Простой REST формат (CDEK)
                 _url = f"{self.server_url}/tools/{tool_name}"
                 print(f"[{self.name}] Calling URL: {_url}")
                 print(f"[{self.name}] Arguments: {str(arguments)[:300]}")
-                response = await self.client.post(
+                response = await self._make_request_with_retry(
                     _url,
+                    method="POST",
                     json=arguments,
                     headers={"Content-Type": "application/json"},
                     timeout=60.0
@@ -238,7 +267,6 @@ class MCPServerClient:
             except json.JSONDecodeError as e:
                 return f"Ошибка {tool_name}: Невалидный JSON ответ: {response.text[:200]}"
             
-            # Обрабатываем разные форматы ответов
             if self.api_format == "mcp-rest":
                 content = result.get('content', [])
                 if content and len(content) > 0:
