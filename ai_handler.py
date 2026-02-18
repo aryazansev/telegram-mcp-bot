@@ -396,5 +396,33 @@ b) Посчитать метрики:
                 }
                 for tc in message["tool_calls"]
             ]
+        elif message.get("content"):
+            # Запасной парсинг XML <invoke> — на случай если модель не поддерживает tool_calls
+            import re
+            content = message["content"]
+            invoke_pattern = re.findall(
+                r'<invoke name="([^"]+)">(.*?)</invoke>',
+                content, re.DOTALL
+            )
+            if invoke_pattern:
+                parsed_calls = []
+                for i, (tool_name, params_block) in enumerate(invoke_pattern):
+                    arguments = {}
+                    for param in re.findall(r'<parameter name="([^"]+)">(.*?)</parameter>', params_block, re.DOTALL):
+                        key, val = param
+                        val = val.strip()
+                        try:
+                            arguments[key] = json.loads(val)
+                        except Exception:
+                            arguments[key] = val
+                    parsed_calls.append({
+                        "name": tool_name,
+                        "arguments": arguments,
+                        "id": f"xml_{i}"
+                    })
+                    # Убираем XML из контента
+                    content = re.sub(r'<invoke.*?</invoke>', '', content, flags=re.DOTALL).strip()
+                response_data["tool_calls"] = parsed_calls
+                response_data["content"] = content or None
         
         return response_data
