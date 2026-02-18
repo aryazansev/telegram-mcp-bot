@@ -192,9 +192,18 @@ class TelegramMCPBot:
                         tool_call['arguments']
                     )
                     error_indicators = ["502 Bad Gateway", "Bad Gateway", "Gateway Timeout", "502", "ConnectError", "Max retries exceeded"]
-                    if any(err.lower() in str(result).lower() for err in error_indicators):
+                    error_indicators = ["502 Bad Gateway", "Bad Gateway", "Gateway Timeout", "ConnectError", "Max retries exceeded"]
+                    result_str = str(result)
+                    found_error = None
+                    for err in error_indicators:
+                        if err.lower() in result_str.lower():
+                            found_error = err
+                            break
+                    if found_error:
                         has_permanent_error = True
-                        logger.warning(f"Ошибка при вызове {tool_call['name']}: {result[:100]}")
+                        logger.warning(f"Ошибка при вызове {tool_call['name']}: найдено '{found_error}' в: {result_str[:100]}")
+                    else:
+                        logger.info(f"Успешный результат от {tool_call['name']}: {result_str[:100]}")
                     tool_results.append({
                         "role": "tool",
                         "tool_call_id": tool_call['id'],

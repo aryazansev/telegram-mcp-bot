@@ -270,7 +270,9 @@ class MCPServerClient:
             if self.api_format == "mcp-rest":
                 content = result.get('content', [])
                 if content and len(content) > 0:
-                    return content[0].get('text', str(result))
+                    text_result = content[0].get('text', str(result))
+                    print(f"[{self.name}] Returning result: {text_result[:200]}...")
+                    return text_result
             elif 'result' in result:
                 return str(result['result'])
             elif 'error' in result:
