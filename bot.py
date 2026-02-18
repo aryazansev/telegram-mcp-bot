@@ -32,6 +32,22 @@ user_conversations = {}
 application = None
 bot_instance = None
 
+# Keep-alive задачи
+keep_alive_tasks = []
+
+
+async def keep_alive_mcp_server(server_name: str, server_url: str, interval: int = 120):
+    """Пингует MCP сервер чтобы не засыпал"""
+    import httpx
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                await client.get(f"{server_url}/health", timeout=10.0)
+                print(f"[KeepAlive] {server_name} pinged")
+            except Exception as e:
+                print(f"[KeepAlive] {server_name}: {e}")
+
 
 class TelegramMCPBot:
     def __init__(self):
@@ -295,10 +311,27 @@ async def health_handler(request):
 
 async def setup_bot() -> Application:
     """Настройка бота"""
-    global application, bot_instance
+    global application, bot_instance, keep_alive_tasks
 
     bot_instance = TelegramMCPBot()
     await bot_instance.initialize()
+
+    # Запускаем keep-alive для MCP серверов (каждые 2 минуты)
+    retailcrm_url = os.getenv('RETAILCRM_MCP_URL', '')
+    cdek_url = os.getenv('CDEK_MCP_URL', '')
+    yandex_url = os.getenv('YANDEX_DELIVERY_MCP_URL', '')
+    
+    if retailcrm_url:
+        task = asyncio.create_task(keep_alive_mcp_server('RetailCRM', retailcrm_url, 120))
+        keep_alive_tasks.append(task)
+    if cdek_url:
+        task = asyncio.create_task(keep_alive_mcp_server('CDEK', cdek_url, 120))
+        keep_alive_tasks.append(task)
+    if yandex_url:
+        task = asyncio.create_task(keep_alive_mcp_server('Yandex', yandex_url, 120))
+        keep_alive_tasks.append(task)
+    
+    logger.info(f"Started {len(keep_alive_tasks)} keep-alive tasks")
 
     token = os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('TELEGRAM_TOKEN')
     if not token:
