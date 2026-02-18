@@ -159,9 +159,6 @@ class TelegramMCPBot:
             conversation = user_conversations.get(user_id, [])
             tools = self.mcp_manager.get_tools_for_llm()
 
-            # Добавляем сообщение пользователя в историю ДО запроса к AI
-            conversation.append({"role": "user", "content": user_message})
-
             ai_response = await self.ai_handler.process_message(
                 user_message,
                 tools,
@@ -212,7 +209,7 @@ class TelegramMCPBot:
                         "Попробуйте через несколько минут — сервис может просыпаться до 60 секунд."
                     )
                 else:
-                final_response = await self.ai_handler.process_message(
+                    final_response = await self.ai_handler.process_message(
                         "Обработай результаты и ответь пользователю",
                         tools,
                         conversation,
