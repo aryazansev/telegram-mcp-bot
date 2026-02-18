@@ -191,9 +191,10 @@ class TelegramMCPBot:
                         tool_call['name'],
                         tool_call['arguments']
                     )
-                    if "502" in str(result) or "Bad Gateway" in str(result):
+                    error_indicators = ["502 Bad Gateway", "Bad Gateway", "Gateway Timeout", "502", "ConnectError", "Max retries exceeded"]
+                    if any(err.lower() in str(result).lower() for err in error_indicators):
                         has_permanent_error = True
-                        logger.warning(f"Не удалось получить ответ от {tool_call['name']} после нескольких попыток")
+                        logger.warning(f"Ошибка при вызове {tool_call['name']}: {result[:100]}")
                     tool_results.append({
                         "role": "tool",
                         "tool_call_id": tool_call['id'],
@@ -218,10 +219,9 @@ class TelegramMCPBot:
                 conversation.extend(tool_results)
 
                 if has_permanent_error:
-                    # Не гоняем LLM по кругу — сразу возвращаем понятное сообщение
                     response_text = (
-                        "⚠️ Сервер RetailCRM временно недоступен (502 Bad Gateway).\n"
-                        "Попробуйте через несколько минут — сервис может просыпаться до 60 секунд."
+                        "⚠️ Не удалось получить данные от сервиса.\n"
+                        "Попробуйте ещё раз через несколько минут."
                     )
                 else:
                     final_response = await self.ai_handler.process_message(
