@@ -159,6 +159,9 @@ class TelegramMCPBot:
             conversation = user_conversations.get(user_id, [])
             tools = self.mcp_manager.get_tools_for_llm()
 
+            # Добавляем сообщение пользователя в историю ДО запроса к AI
+            conversation.append({"role": "user", "content": user_message})
+
             ai_response = await self.ai_handler.process_message(
                 user_message,
                 tools,
@@ -168,12 +171,17 @@ class TelegramMCPBot:
 
             if ai_response.get('tool_calls'):
                 tool_results = []
+                has_502_error = False
 
                 for tool_call in ai_response['tool_calls']:
                     result = await self.mcp_manager.execute_tool(
                         tool_call['name'],
                         tool_call['arguments']
                     )
+                    # Проверяем на 502 ошибку — не передаём в LLM повторно
+                    if "502" in str(result) or "Bad Gateway" in str(result):
+                        has_502_error = True
+                        logger.warning(f"502 от инструмента {tool_call['name']}, прерываем цикл")
                     tool_results.append({
                         "role": "tool",
                         "tool_call_id": tool_call['id'],
@@ -197,19 +205,23 @@ class TelegramMCPBot:
                 })
                 conversation.extend(tool_results)
 
+                if has_502_error:
+                    # Не гоняем LLM по кругу — сразу возвращаем понятное сообщение
+                    response_text = (
+                        "⚠️ Сервер RetailCRM временно недоступен (502 Bad Gateway).\n"
+                        "Попробуйте через несколько минут — сервис может просыпаться до 60 секунд."
+                    )
+                else:
                 final_response = await self.ai_handler.process_message(
-                    "Обработай результаты и ответь пользователю",
-                    tools,
-                    conversation,
-                    tool_results=tool_results,
-                    user_id=user_id
-                )
-
-                response_text = final_response['content']
+                        "Обработай результаты и ответь пользователю",
+                        tools,
+                        conversation,
+                        user_id=user_id
+                    )
+                    response_text = final_response['content']
             else:
                 response_text = ai_response['content']
 
-            conversation.append({"role": "user", "content": user_message})
             conversation.append({"role": "assistant", "content": response_text})
 
             max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "100000"))

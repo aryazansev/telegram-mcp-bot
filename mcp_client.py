@@ -205,6 +205,11 @@ class MCPServerClient:
             print(f"[{self.name}] Tool {tool_name} response status: {response.status_code}")
             print(f"[{self.name}] Tool {tool_name} response text: {response.text[:500]}")
             
+            if response.status_code == 502:
+                return f"Ошибка 502: Сервер {self.name} временно недоступен (Bad Gateway). Попробуйте позже."
+            elif response.status_code == 503:
+                return f"Ошибка 503: Сервер {self.name} на обслуживании. Попробуйте позже."
+            
             response.raise_for_status()
             
             if not response.text or response.text.strip() == '':
