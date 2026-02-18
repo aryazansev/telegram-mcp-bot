@@ -218,6 +218,11 @@ class TelegramMCPBot:
                     response_text = final_response['content']
             else:
                 response_text = ai_response['content']
+            
+            # Debug: проверяем пустой ответ
+            if not response_text or not response_text.strip():
+                logger.error(f"Пустой ответ от AI! tool_calls: {ai_response.get('tool_calls')}")
+                response_text = "Не удалось обработать запрос. Попробуйте ещё раз."
 
             conversation.append({"role": "assistant", "content": response_text})
 
