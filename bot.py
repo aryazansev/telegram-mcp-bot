@@ -72,6 +72,11 @@ class TelegramMCPBot:
 
         await self.mcp_manager.initialize_all()
         
+        tools = self.mcp_manager.get_tools_for_llm()
+        logger.info(f"MCP инициализировано. Всего инструментов: {len(tools)}")
+        for name, server in self.mcp_manager.servers.items():
+            logger.info(f"  {name}: {len(server.tools)} инструментов, здоров: {server.is_healthy}")
+        
         # Загружаем кэш заказов
         await order_cache.refresh(self.mcp_manager)
 
