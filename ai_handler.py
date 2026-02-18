@@ -63,6 +63,34 @@ class AIHandler:
 ВАЖНО: Если items[] пустой, скажи "В заказе нет товаров".
 """
         
+        # Инструкции по клиентам
+        customers_guide = """
+=== ПОИСК КЛИЕНТОВ ===
+
+ВАЖНО: Инструмент называется retailcrm__get_customers (НЕ get_clients!)
+
+Поиск по телефону:
+retailcrm__get_customers({
+  "filter": {"phone": "7906075518"},
+  "limit": 5
+})
+
+Поиск по email:
+retailcrm__get_customers({
+  "filter": {"email": "test@mail.ru"},
+  "limit": 5
+})
+
+Поиск по имени:
+retailcrm__get_customers({
+  "filter": {"name": "Иван"},
+  "limit": 10
+})
+
+ОБЯЗАТЕЛЬНО передавай filter с нужным параметром!
+Не вызывай get_customers без фильтра если ищешь конкретного клиента.
+"""
+
         # Инструкции по статистике
         stats_guide = """
 === СТАТИСТИКА ПРОДАЖ ===
@@ -233,7 +261,7 @@ b) Посчитать метрики:
 Ты помогаешь с заказами, клиентами, доставкой, товарами."""
         
         # Собираем полный промпт
-        parts = [base_prompt, tool_instructions, orders_guide, stats_guide, items_guide, courier_guide]
+        parts = [base_prompt, tool_instructions, orders_guide, stats_guide, items_guide, courier_guide, customers_guide]
         
         if user_facts_text:
             parts.append(f"\n{user_facts_text}")
