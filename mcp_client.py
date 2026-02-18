@@ -162,8 +162,21 @@ class MCPServerClient:
             print(f"[{self.name}] ❌ Ошибка получения инструментов: {e}")
             return False
     
+    def _normalize_phone(self, phone: str) -> str:
+        """Нормализация номера телефона — всегда начинается с 7"""
+        phone = phone.replace('+', '').replace('-', '').replace(' ', '').replace('(', '').replace(')', '')
+        if phone.startswith('8') and len(phone) == 11:
+            phone = '7' + phone[1:]
+        return phone
+
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Вызов инструмента"""
+        # Нормализуем телефон если есть в аргументах
+        if 'filter' in arguments and isinstance(arguments['filter'], dict):
+            if 'phone' in arguments['filter']:
+                arguments['filter']['phone'] = self._normalize_phone(str(arguments['filter']['phone']))
+        if 'phone' in arguments:
+            arguments['phone'] = self._normalize_phone(str(arguments['phone']))
         try:
             if self.api_format == "json-rpc":
                 # Яндекс JSON-RPC формат
