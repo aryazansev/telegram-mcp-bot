@@ -188,27 +188,27 @@ class TelegramMCPBot:
             )
 
             if ai_response.get('tool_calls'):
+                logger.info(f"AI запросил инструменты: {[tc['name'] for tc in ai_response['tool_calls']]}")
                 tool_results = []
                 has_permanent_error = False
 
                 for tool_call in ai_response['tool_calls']:
+                    logger.info(f"Выполняю {tool_call['name']} с аргументами: {tool_call['arguments']}")
                     result = await self.mcp_manager.execute_tool(
                         tool_call['name'],
                         tool_call['arguments']
                     )
-                    error_indicators = ["502 Bad Gateway", "Bad Gateway", "Gateway Timeout", "502", "ConnectError", "Max retries exceeded"]
-                    error_indicators = ["502 Bad Gateway", "Bad Gateway", "Gateway Timeout", "ConnectError", "Max retries exceeded"]
-                    result_str = str(result)
+                    logger.info(f"Результат от {tool_call['name']}: {result[:300]}")
+                    error_indicators = ["502 bad gateway", "bad gateway", "gateway timeout", "connecterror", "max retries exceeded", "error"]
+                    result_str = str(result).lower()
                     found_error = None
                     for err in error_indicators:
-                        if err.lower() in result_str.lower():
+                        if err in result_str:
                             found_error = err
                             break
                     if found_error:
                         has_permanent_error = True
-                        logger.warning(f"Ошибка при вызове {tool_call['name']}: найдено '{found_error}' в: {result_str[:100]}")
-                    else:
-                        logger.info(f"Успешный результат от {tool_call['name']}: {result_str[:100]}")
+                        logger.warning(f"Ошибка при вызове {tool_call['name']}: найдено '{found_error}'")
                     tool_results.append({
                         "role": "tool",
                         "tool_call_id": tool_call['id'],
